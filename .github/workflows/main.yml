@@ -7,7 +7,7 @@ jobs:
     runs-on: self-hosted
     steps:
     - name: Trigger jenkins job
-      uses: revm119/testnodejs@master
+      uses: revm19/testnodejs@master
       with:
         url: ${{ secrets.JENKINS_URL }}
         job_name: "GitHub_Job"
