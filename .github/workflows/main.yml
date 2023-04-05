@@ -1,17 +1,51 @@
-name: trigger jenkins job
-on: [push]
+---
+name: hello-world
+on: push
 jobs:
-
   build:
-    name: Build
-    runs-on: self-hosted
+    runs-on: [self-hosted]
     steps:
-    - name: Trigger jenkins job
-      uses: revm19/testnodejs@master
-      with:
-        url: ${{ secrets.JENKINS_URL }}
-        job_name: "GitHub_Job"
-        user_name: ${{ secrets.JENKINS_USER }}
-        api_token: ${{ secrets.JENKINS_TOKEN }}
-        wait: "true"
-        timeout: "1000"
+      - name: Grabbing Secrets from Hashicorp Vault
+        uses: hashicorp/vault-action@v2
+        with:
+          url: http://10.33.174.33:8200
+          token: ${{ secrets.TOKENS }}
+          tlsSkipVerify: true
+          secrets: |
+            secret/data/CI CNES_VERSION | CNES_VERSION;
+            secret/data/CI REPORT_DIRECTORY | REPORT_DIRECTORY;
+            secret/data/CI SONARQUBE_TOKEN | SONARQUBE_TOKEN;
+            secret/data/CI SONARQUBE_PROJECT | SONARQUBE_PROJECT;
+            secret/data/CI SONARQUBE_PROJECT_KEY | SONARQUBE_PROJECT_KEY;
+            secret/data/CI S3_API_ACCESS_KEY_ID | S3_API_ACCESS_KEY_ID;
+            secret/data/CI S3_API_SECRET_ACCESS_KEY | S3_API_SECRET_ACCESS_KEY;
+            secret/data/CI S3_DIRECTORY | S3_DIRECTORY
+      - name: Checking out
+        uses: actions/checkout@v3
+        with:
+          # Disabling shallow clone is recommended for improving relevancy of reporting
+          fetch-depth: 0
+      - name: Set up Docker
+        run: |
+          docker run --privileged -d --name dind docker:dind
+          docker exec -it dind sh -c "docker info"
+      - name: SonarQube Scan
+        uses: sonarsource/sonarqube-scan-action@master
+        env:
+          SONAR_TOKEN: ${{ env.SONARQUBE_TOKEN }}
+          SONAR_HOST_URL: ${{ vars.SONARQUBE_HOST }}
+        with:
+          args: >
+            -Dsonar.projectKey=${{ env.SONARQUBE_PROJECT_KEY }}
+      - name: Installing Java JRE
+        run: sudo apt update && sudo apt install -y default-jre
+      - name: Installing aws-cli
+        run: pip install --user awscli
+      - name: Downloading CNES Scanner
+        run: wget -qO cnes.jar https://github.com/cnescatlab/sonar-cnes-report/releases/download/${{ env.CNES_VERSION }}/sonar-cnes-report-${{ env.CNES_VERSION }}.jar
+      - name: Making output directory
+        run: mkdir ${{ env.REPORT_DIRECTORY }}
+      - name: Scanning Repo
+        run: java -jar cnes.jar -s ${{ vars.SONARQUBE_HOST }} -p ${{ env.SONARQUBE_PROJECT }} -o ${{ env.REPORT_DIRECTORY }} -t ${{ env.SONARQUBE_TOKEN}}
+      - name: Uploading reports to s3
+        run: for i in $(find output -maxdepth 1 -not -type d); do AWS_ACCESS_KEY_ID=${{ env.S3_API_ACCESS_KEY_ID }} AWS_SECRET_ACCESS_KEY=${{ env.S3_API_SECRET_ACCESS_KEY }} aws s3 cp $i ${{ env.S3_DIRECTORY }}; done
