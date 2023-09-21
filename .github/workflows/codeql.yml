@@ -1,6 +1,4 @@
-
-name: "CodeQL"
-
+name: "Nodejs codeQL"
 on:
   push:
     branches: [ "master" ]
